@@ -4,6 +4,7 @@ from argparse import ArgumentParser
 
 def parse_args():
     parser=ArgumentParser()
+    # Configuration
     parser.add_argument('--path_to_sequences',
                         default='sequences')
     parser.add_argument('--target_seq',

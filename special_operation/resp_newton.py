@@ -12,15 +12,12 @@ def resp_newton(response, responsef, iterations, ky, kx, use_sz):
     col = index_max_in_col.flatten(order="F")
 
     max_row_perm = index_max_in_row
-    # row = max_row_perm[np.ravel_multi_index((col, np.arange(n_scale)),\
-    #                                                   max_row_perm.shape, order='F')]
     row = max_row_perm[col, np.arange(n_scale)]
 
     trans_row = (row - 1 + np.floor((use_sz[0] - 1) / 2)) % use_sz[0] \
                 - np.floor((use_sz[0] - 1) / 2) + 1
     trans_col = (col - 1 + np.floor((use_sz[1] - 1) / 2)) % use_sz[1] \
                 - np.floor((use_sz[1] - 1) / 2) + 1
-    # trans_col = np.mod(col - 1 + np.floor((use_sz[1] - 1) / 2), use_sz[1]) - np.floor((use_sz[1] - 1) / 2)
     init_pos_y = np.reshape(2 * np.pi * trans_row / use_sz[0], (1, 1, n_scale))
     init_pos_x = np.reshape(2 * np.pi * trans_col / use_sz[1], (1, 1, n_scale))
     max_pos_y = init_pos_y
@@ -66,13 +63,6 @@ def resp_newton(response, responsef, iterations, ky, kx, use_sz):
         max_pos_y = max_pos_y - diff_y
         max_pos_x = max_pos_x - diff_x
 
-        # print('iter : {}'.format(iter))
-        # print('\n'.join('{0:.3}, {1:.3}'.format(x, y) for x, y in zip(list(grad_x.flatten()), list(grad_y.flatten()))))
-        # print('dif_y', ', '.join('{:.3}'.format(y) for y in diff_y.flatten()))
-        # print('dif_x', ', '.join('{:.3}'.format(y) for y in diff_x.flatten()))
-        # print('y', ', '.join('{:.3}'.format(y) for y in max_pos_y.flatten()))
-        # print('x', ', '.join('{:.3}'.format(y) for y in max_pos_x.flatten()))
-
         # Evaluate maximum
         exp_iky = np.tile(iky[np.newaxis, :, np.newaxis], (1, 1, n_scale)) * \
                   np.tile(max_pos_y, (1, ky.shape[0], 1))
@@ -99,10 +89,4 @@ def resp_newton(response, responsef, iterations, ky, kx, use_sz):
     disp_row = (np.mod(max_pos_y[0, 0, sind] + np.pi, 2 * np.pi) - np.pi) / (2 * np.pi) * use_sz[0]
     disp_col = (np.mod(max_pos_x[0, 0, sind] + np.pi, 2 * np.pi) - np.pi) / (2 * np.pi) * use_sz[1]
 
-    # a, b = (np.mod(init_pos_x[0, 0, sind] + np.pi, 2 * np.pi) - np.pi) / (2 * np.pi) * use_sz[0],\
-    #      (np.mod(init_pos_y[0, 0, sind] + np.pi, 2 * np.pi) - np.pi) / (2 * np.pi) * use_sz[0]
-    # print(np.abs(a - disp_col))
-    # print(np.abs(b - disp_row))
-    # print('init_x {0:.4} init_y {1:.4}'.format(a, b))
-    # print('x      {0:.4} y      {1:.4}'.format(disp_col, disp_row))
     return disp_row, disp_col, sind

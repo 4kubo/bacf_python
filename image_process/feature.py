@@ -35,16 +35,12 @@ def get_pixels( img, pos, sz, resize_target):
     if resize_target.size is 0:
         resized_patch = img_patch
     else:
-        # resized_patch = mexResize(img_patch,resize_target,'auto')
         img_pil = Image.fromarray(np.uint8(img_patch))
         resized_patch = np.asarray(img_pil.resize(resize_target.astype(int)))
     return resized_patch
 
 
 def get_features(image, features, cell_size, fg_size=None):
-    # if ~ iscell(features)
-    #     features = {features}
-    # end
     if image.ndim == 4:
         im_height, im_width, n_img_channel, n_image = image.shape
     else:

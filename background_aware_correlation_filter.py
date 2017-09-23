@@ -30,7 +30,6 @@ class BackgroundAwareCorrelationFilter(object):
         self.t_features = [{'get_feature': get_pyhog, 'fparams': {'use_for_color': True, 'n_dim': self.params.dim_feature}}]
 
     def track(self):
-        # This function implements the SRDCF tracker
         # parameters
         output_sigma_factor = self.params.output_sigma_factor
         pos = np.floor(self.init_pos)

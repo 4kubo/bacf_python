@@ -6,8 +6,7 @@ from background_aware_correlation_filter import BackgroundAwareCorrelationFilter
 from utils.arg_parse import parse_args
 
 if __name__ == "__main__":
-    # This demo script runs the SRDCF tracker on the included "Couple" video.
-    # Load video information
+    # This demo script runs the BACF tracker on the included "Bolt" video.
     params = parse_args()
     for target in params.target_seq:
         print("Current sequence : {}".format(target))
