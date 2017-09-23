@@ -1,9 +1,7 @@
 from __future__ import division
 
 import os
-
 import cv2
-import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
 from matplotlib import cm
@@ -357,7 +355,6 @@ class BackgroundAwareCorrelationFilter(object):
                             if not os.path.exists(target_dir + i):
                                 os.makedirs(target_dir + i)
                             os.path.join(target_dir + i)
-                    plt.ioff()
                     main_img = im_to_show
 
                 # in opencv, coordinate is in form of (x, y)
