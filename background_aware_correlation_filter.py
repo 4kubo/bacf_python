@@ -219,7 +219,6 @@ class BackgroundAwareCorrelationFilter(object):
                     elif self.params.interpolate_response == 4:
                         disp_row, disp_col, sind =\
                             resp_newton(response, responsef_padded, newton_iterations, ky, kx, use_sz)
-                        print("row {0}, col {1}, sind {2}".format(disp_row, disp_col, sind))
                     else:
                         # Find index of which value is 0 in response
                         row, col, sind = np.unravel_index(np.argmax(response), response.shape,

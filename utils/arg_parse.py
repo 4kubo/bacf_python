@@ -1,16 +1,15 @@
 from argparse import ArgumentParser
-from os import environ
 
-home = environ['HOME']
+
 
 def parse_args():
     parser=ArgumentParser()
     parser.add_argument('--path_to_sequences',
-                        default=home + '/data/sequences/OTB2015')
+                        default='sequences')
     parser.add_argument('--target_seq',
                         type=str,
                         nargs='+',
-                        default=['Soccer'])
+                        default=['Bolt'])
     parser.add_argument('--model_name',
                         type=str,
                         default='srdcf')
@@ -45,7 +44,7 @@ def parse_args():
                         help="the size of the training/detection area in feature grid cells")
 
     # Learning parameters
-    parser.add_argument('--learning_rate', default=0.013,
+    parser.add_argument('--learning_rate', type=float, default=0.013,
                         help="learning rate")
     parser.add_argument('--output_sigma_factor', default=1./16, type=float,
                         help="standard deviation of the desired correlation output (proportional to target)")
