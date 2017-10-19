@@ -63,8 +63,6 @@ def parse_args():
                         help="the impact of the spatial regularization (value at the target border), depends on the detection size and the feature dimensionality")
     parser.add_argument('--reg_window_power', default=2,
                         help="the degree of the polynomial to use (e.g. 2 is a quadratic window)")
-    parser.add_argument('--reg_sparsity_threshold', default=0.05,
-                        help="a relative threshold of which DFT coefficients that should be set to zero")
     parser.add_argument('--reg_lambda', default=0.01,
                         help="the weight of the standard (uniform) regularization, only used when use_reg_window == 0")
 
