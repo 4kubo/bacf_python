@@ -13,7 +13,7 @@ def parse_args():
                         default=['Bolt'])
     parser.add_argument('--model_name',
                         type=str,
-                        default='srdcf')
+                        default='bacf')
     parser.add_argument('--run_id',
                         type=str,
                         default='result')
