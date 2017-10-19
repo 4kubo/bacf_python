@@ -12,7 +12,6 @@ from image_process.feature import get_pixels, get_pyhog
 from special_operation.convertor import resize_DFT2
 from special_operation.resp_newton import resp_newton
 from utils.functions import get_subwindow_no_window
-from utils.get_sequence_info import get_sequences
 
 
 class BackgroundAwareCorrelationFilter(object):
@@ -388,7 +387,7 @@ class BackgroundAwareCorrelationFilter(object):
         return rect_positions
 
 class BackgroundAwareCorrelationFilte(object):
-    def __init__(self, feature, target_seq, path_to_seq, admm_lambda=0.01, cell_selection_thresh=0.5625,
+    def __init__(self, feature, admm_lambda=0.01, cell_selection_thresh=0.5625,
                  dim_feature=31, filter_max_area=2500, feature_ratio=4, interpolate_response=4,
                  learning_rate=0.013, search_area_scale=5.0, reg_window_power=2,
                  n_scales=5, newton_iterations=5, output_sigma_factor=0.0625,
@@ -419,15 +418,14 @@ class BackgroundAwareCorrelationFilte(object):
         self.debug=debug
         self.visualization=visualization
 
-        gt_label, self.frame_names, self.n_frame, init_rect = get_sequences(path_to_seq, target_seq)
 
+    def init(self, img, init_rect):
         self.wsize = np.array((init_rect[3], init_rect[2]))
         self.init_pos = (init_rect[1]+np.floor(self.wsize[0]/2),
                          init_rect[0]+np.floor(self.wsize[1]/2))
 
-    def init(self):
         # parameters
-        self.pos = np.floor(self.init_pos)
+        position = np.floor(self.init_pos)
         target_pix_sz = np.floor(self.wsize)
         init_target_sz = target_pix_sz
 
@@ -442,12 +440,12 @@ class BackgroundAwareCorrelationFilte(object):
             search_area = np.prod(init_target_sz / self.feature_ratio * self.search_area_scale)
 
         if search_area > self.filter_max_area:
-            self.current_scale_factor = np.sqrt(search_area / self.filter_max_area)
+            scale_factor = np.sqrt(search_area / self.filter_max_area)
         else:
-            self.current_scale_factor = 1.0
+            scale_factor = 1.0
 
         # target size, or bounding box size at the initial scale
-        base_target_pix_sz = target_pix_sz / self.current_scale_factor
+        base_target_pix_sz = target_pix_sz / scale_factor
 
         # window size, taking padding into account
         if self.search_area_shape == 'proportional':
@@ -464,15 +462,12 @@ class BackgroundAwareCorrelationFilte(object):
         else:
             print('Unknown "params.search_area_shape". Must be ''proportional'', ''square'' or ''fix_padding''')
 
-        # Calculate feature dimension
-        img = cv2.imread(self.frame_names[0])
-
-        # set the size to exactly match the cell size
+        # Set the size to exactly match the cell size
         self.search_pix_sz = np.round(search_pix_sz / self.feature_ratio) * self.feature_ratio
         # use_sz = np.floor(sz / feature_ratio)
-        pixels = get_pixels(img, self.pos, np.round(self.search_pix_sz * self.current_scale_factor), self.search_pix_sz)
+        pixels = get_pixels(img, position, np.round(self.search_pix_sz * scale_factor), self.search_pix_sz)
         # features, _ = get_features(pixels, self.t_features, self.feature_ratio)
-        features = self.get_features(pixels)
+        features = self._get_features(pixels)
         # The 2-D size of extracted feature
         self.feature_sz = np.float32(features.shape[:2])
 
@@ -523,6 +518,8 @@ class BackgroundAwareCorrelationFilte(object):
         self.small_filter_sz = np.floor(base_target_pix_sz / self.feature_ratio)
         self.base_target_pix_sz = base_target_pix_sz
 
+        return position, scale_factor
+
     def _get_pixels(self, img, pos, search_pix_sz):
         # square sub-window:
         if np.isscalar(search_pix_sz):
@@ -554,7 +551,7 @@ class BackgroundAwareCorrelationFilte(object):
         resized_patch = cv2.resize(img_patch, tuple(self.search_pix_sz.astype(int)))
         return resized_patch
 
-    def get_features(self, pixels):
+    def _get_features(self, pixels):
         if pixels.ndim == 4:
             im_height, im_width, n_img_channel, n_image = pixels.shape
             features = np.stack([self.feature(pixels[..., n], self.feature_ratio) for n in range(n_image)], -1)
@@ -564,174 +561,169 @@ class BackgroundAwareCorrelationFilte(object):
             features = self.feature(pixels, self.feature_ratio)
             return features
 
-    def track(self):
-        if self.interpolate_response == 1:
-            interp_sz = self.feature_sz * self.feature_ratio
-        else:
-            interp_sz = self.feature_sz
+    def gen_tracker(self, images):
+        """"""
 
         rect_positions = []
 
-        for frame in range(self.n_frame):
-            # load image
-            img = cv2.imread(self.frame_names[frame])[:, :, ::-1]
-            img = img[..., ::-1]
-            # if img.shape[2] > 1 and color_image == False:
-            #     img = img[:,:, 0]
-
-            # do not estimate translation and scaling on the first frame,
-            #  since we just want to initialize the tracker there
-            if frame > 0:
-                old_pos = np.full(self.pos.shape, np.inf)
-                iter = 1
-
-                # translation search
-                while iter <= self.refinement_iterations and np.any(old_pos != self.pos):
-                    # Get multi - resolution image
-                    for scale_ind in range(self.n_scales):
-                        search_pix_sz = np.round(self.search_pix_sz * self.current_scale_factor * self.scale_factors[scale_ind])
-                        self.multires_pixel_template[:,:,:, scale_ind] =\
-                            self._get_pixels(img, self.pos, search_pix_sz)
-
-                    features = self.get_features(self.multires_pixel_template)
-
-                    xt = features*self.multi_cos_window
-                    del features
-                    xtf = fft2(xt, axes=(0, 1))
-                    responsef = np.sum(np.conj(g_f[..., np.newaxis])*xtf, axis=2)[..., None]
-                    # if we undersampled features, we want to interpolate the
-                    # response so it has the same size as the image patch
-                    if self.interpolate_response == 2:
-                        # Use dynamic interp size
-                        interp_sz = np.floor(self.feature_sz*self.feature_ratio*self.current_scale_factor)
-
-                    responsef_padded = resize_DFT2(responsef, interp_sz)
-
-                    response = np.real(ifft2(responsef_padded, axes=(0, 1)))
-
-                    if self.debug:
-                        a = response[:,:,0]
-                        ma, mi = a.max(), a.min()
-                        im = (a-mi)/(ma-mi)
-                        im = cv2.resize(im, (5*im.shape[0], 5*im.shape[1]))
-                        cv2.imshow("resp", im)
-
-                        a = self.multires_pixel_template[:,:,:,0]
-                        ma, mi = a.max(), a.min()
-                        im = (a-mi)/(ma-mi)
-                        cv2.imshow("cropped", im)
-
-                    # find maximum
-                    if self.interpolate_response == 3:
-                        print('Invalid parameter value for interpolate_response')
-                    elif self.interpolate_response == 4:
-                        disp_row, disp_col, sind =\
-                            resp_newton(response, responsef_padded, self.newton_iterations, self.ky, self.kx, self.feature_sz)
-                    else:
-                        # Find index of which value is 0 in response
-                        row, col, sind = np.unravel_index(np.argmax(response), response.shape,
-                                                          order="F")
-                        disp_row = np.mod(row - 1 + np.floor((interp_sz(1) - 1) / 2), interp_sz[0])\
-                                   - np.floor((interp_sz[0] - 1) / 2)
-                        disp_col = np.mod(col - 1 + np.floor((interp_sz(2) - 1) / 2), interp_sz[1])\
-                                   - np.floor((interp_sz[1] - 1) / 2)
-
-                    # calculate translation
-                    if self.interpolate_response in (0, 3, 4):
-                        translation_vec = np.round(np.array([disp_row, disp_col])
-                                                   *self.feature_ratio*self.current_scale_factor*self.scale_factors[sind])
-                    elif self.interpolate_response == 1:
-                        translation_vec = np.round(np.array([disp_row, disp_col])*self.current_scale_factor*self.scale_factors[sind])
-                    else:
-                        assert(self.interpolate_response==2)
-                        translation_vec = np.round(np.array([disp_row, disp_col])*self.scale_factors[sind])
-
-                    # set the scale
-                    self.current_scale_factor = self.current_scale_factor*self.scale_factors[sind]
-                    # adjust to make sure we are not too larger or too small
-                    if self.current_scale_factor < self.min_scale_factor:
-                        self.current_scale_factor = self.min_scale_factor
-                    elif self.current_scale_factor > self.max_scale_factor:
-                        self.current_scale_factor = self.max_scale_factor
-
-                    # update position
-                    old_pos = self.pos
-                    self.pos = self.pos + translation_vec
-                    iter += 1
-
-            # Extract training sample image region
-            search_pix_sz = np.round(self.search_pix_sz*self.current_scale_factor)
-            pixels = self._get_pixels(img, self.pos, search_pix_sz)
-
-            # extract features and do windowing
-            features = self.get_features(pixels)
-
-            if features.ndim == 4:
-                xl = np.tile(self.cos_window[:, :, np.newaxis, np.newaxis],
-                             (1, 1, features.shape[2], features.shape[3]))
-            elif features.ndim == 3:
-                xl = np.tile(self.cos_window[:, :, np.newaxis], (1, 1, features.shape[2]))
+        def track(position, scale_factor):
+            # interp_sz = interp_sz
+            if self.interpolate_response == 1:
+                interp_sz = self.feature_sz * self.feature_ratio
             else:
-                print('Strange feature shape!' + features.shape)
-            xl = features*xl
+                interp_sz = self.feature_sz
 
-            # take the DFT and vectorize each feature dimension
-            xlf = fft2(xl, axes=(0, 1))
+            for i_image, image in enumerate(images):
+                # Estimate translation and scaling
+                if i_image > 0:
+                    old_pos = np.full(position.shape, np.inf)
+                    iter = 1
 
-            if (frame == 0):
-                model_xf = xlf
-            else:
-                model_xf = (1 - self.learning_rate)*model_xf + self.learning_rate*xlf
+                    # translation search
+                    while iter <= self.refinement_iterations and np.any(old_pos != position):
+                        # Get multi - resolution image
+                        for scale_ind in range(self.n_scales):
+                            search_pix_sz = np.round(self.search_pix_sz * scale_factor * self.scale_factors[scale_ind])
+                            self.multires_pixel_template[:,:,:, scale_ind] =\
+                                self._get_pixels(image, position, search_pix_sz)
 
-            # ADMM
-            g_f = np.zeros(xlf.shape)
-            h_f = g_f
-            l_f = g_f
-            mu = 1
-            betha = 10
-            mumax = 10000
+                        features = self._get_features(self.multires_pixel_template)
 
-            T = np.prod(self.feature_sz)
-            S_xx = np.sum(np.conj(model_xf)*model_xf, 2)
-            self.admm_iterations = 2
-            for i in range(self.admm_iterations):
-                # solve for G - please refer to the paper for more details
-                B = S_xx + (T * mu)
-                S_lx = np.sum(np.conj(model_xf)*l_f, 2)
-                S_hx = np.sum(np.conj(model_xf)*h_f, 2)
-                tmp_second_term = model_xf*(S_xx*self.yf)[..., None]/(T*mu)\
-                                  - model_xf*S_lx[..., None] / mu \
-                                  + model_xf*S_hx[..., None]
-                g_f = self.yf[..., None]*model_xf/(T*mu) - l_f/mu + h_f \
-                        - tmp_second_term / B[..., None]
+                        xt = features*self.multi_cos_window
+                        del features
+                        xtf = fft2(xt, axes=(0, 1))
+                        responsef = np.sum(np.conj(g_f[..., np.newaxis])*xtf, axis=2)[..., None]
+                        # if we undersampled features, we want to interpolate the
+                        # response so it has the same size as the image patch
+                        if self.interpolate_response == 2:
+                            # Use dynamic interp size
+                            interp_sz = np.floor(self.feature_sz*self.feature_ratio*scale_factor)
 
-                # solve for H
-                h = (T / ((mu * T) + self.admm_lambda)) * ifft2(mu * g_f + l_f, axes=(0, 1))
-                [sy, sx, h] = get_subwindow_no_window(h, np.floor(self.feature_sz / 2), self.small_filter_sz)
-                t = np.zeros((int(self.feature_sz[0]), int(self.feature_sz[1]), h.shape[2]), dtype=np.complex128)
-                t[np.int16(sy), np.int16(sx), :] = h
-                h_f = fft2(t, axes=(0, 1))
+                        responsef_padded = resize_DFT2(responsef, interp_sz)
 
-                # update L
-                l_f = l_f + (mu * (g_f - h_f))
+                        response = np.real(ifft2(responsef_padded, axes=(0, 1)))
 
-                # update mu - betha = 10.
-                mu = min(betha * mu, mumax)
+                        if self.debug:
+                            a = response[:,:,0]
+                            ma, mi = a.max(), a.min()
+                            im = (a-mi)/(ma-mi)
+                            im = cv2.resize(im, (5*im.shape[0], 5*im.shape[1]))
+                            cv2.imshow("resp", im)
 
-            target_sz = np.floor(self.base_target_pix_sz*self.current_scale_factor)
+                            a = self.multires_pixel_template[:,:,:,0]
+                            ma, mi = a.max(), a.min()
+                            im = (a-mi)/(ma-mi)
+                            cv2.imshow("cropped", im)
 
-            # save position and calculate FPS
-            rect_pos = np.r_[self.pos[[1, 0]] - np.floor(target_sz[[1, 0]] / 2), target_sz[[1, 0]]]
-            print("{} at {}".format(rect_pos, frame))
-            rect_positions.append(rect_pos)
+                        # find maximum
+                        if self.interpolate_response == 3:
+                            print('Invalid parameter value for interpolate_response')
+                        elif self.interpolate_response == 4:
+                            disp_row, disp_col, sind =\
+                                resp_newton(response, responsef_padded, self.newton_iterations, self.ky, self.kx, self.feature_sz)
+                        else:
+                            # Find index of which value is 0 in response
+                            row, col, sind = np.unravel_index(np.argmax(response), response.shape,
+                                                              order="F")
+                            disp_row = np.mod(row - 1 + np.floor((interp_sz(1) - 1) / 2), interp_sz[0])\
+                                       - np.floor((interp_sz[0] - 1) / 2)
+                            disp_col = np.mod(col - 1 + np.floor((interp_sz(2) - 1) / 2), interp_sz[1])\
+                                       - np.floor((interp_sz[1] - 1) / 2)
+
+                        # calculate translation
+                        if self.interpolate_response in (0, 3, 4):
+                            translation_vec = np.round(np.array([disp_row, disp_col])
+                                                       *self.feature_ratio*scale_factor*self.scale_factors[sind])
+                        elif self.interpolate_response == 1:
+                            translation_vec = np.round(np.array([disp_row, disp_col])*scale_factor*self.scale_factors[sind])
+                        else:
+                            assert(self.interpolate_response==2)
+                            translation_vec = np.round(np.array([disp_row, disp_col])*self.scale_factors[sind])
+
+                        # Update the scale
+                        scale_factor = scale_factor*self.scale_factors[sind]
+                        # adjust to make sure we are not too larger or too small
+                        if scale_factor < self.min_scale_factor:
+                            scale_factor = self.min_scale_factor
+                        elif scale_factor > self.max_scale_factor:
+                            scale_factor = self.max_scale_factor
+
+                        # update position
+                        old_pos = position
+                        position = position + translation_vec
+                        iter += 1
+
+                # Extract training sample image region
+                search_pix_sz = np.round(self.search_pix_sz*scale_factor)
+                pixels = self._get_pixels(image, position, search_pix_sz)
+
+                # Extract features and do windowing
+                features = self._get_features(pixels)
+                if features.ndim == 4:
+                    xl = np.tile(self.cos_window[:, :, np.newaxis, np.newaxis],
+                                 (1, 1, features.shape[2], features.shape[3]))
+                elif features.ndim == 3:
+                    xl = np.tile(self.cos_window[:, :, np.newaxis], (1, 1, features.shape[2]))
+                else:
+                    print('Strange feature shape!' + features.shape)
+                xl = features*xl
+
+                # Take the DFT
+                xlf = fft2(xl, axes=(0, 1))
+
+                if (i_image == 0):
+                    model_xf = xlf
+                else:
+                    model_xf = (1 - self.learning_rate)*model_xf + self.learning_rate*xlf
+
+                # ADMM
+                g_f = np.zeros(xlf.shape)
+                h_f = g_f
+                l_f = g_f
+                mu = 1
+                beta = 10
+                mu_max = 10000
+
+                T = np.prod(self.feature_sz)
+                S_xx = np.sum(np.conj(model_xf)*model_xf, 2)
+                self.admm_iterations = 2
+                for i in range(self.admm_iterations):
+                    # Solve for G - please refer to the paper for more details
+                    B = S_xx + (T * mu)
+                    S_lx = np.sum(np.conj(model_xf)*l_f, 2)
+                    S_hx = np.sum(np.conj(model_xf)*h_f, 2)
+                    tmp_second_term = model_xf*(S_xx*self.yf)[..., None]/(T*mu)\
+                                      - model_xf*S_lx[..., None] / mu \
+                                      + model_xf*S_hx[..., None]
+                    g_f = self.yf[..., None]*model_xf/(T*mu) - l_f/mu + h_f \
+                            - tmp_second_term / B[..., None]
+
+                    # Solve for H
+                    h = (T / ((mu * T) + self.admm_lambda)) * ifft2(mu * g_f + l_f, axes=(0, 1))
+                    [sy, sx, h] = get_subwindow_no_window(h, np.floor(self.feature_sz / 2), self.small_filter_sz)
+                    t = np.zeros((int(self.feature_sz[0]), int(self.feature_sz[1]), h.shape[2]), dtype=np.complex128)
+                    t[np.int16(sy), np.int16(sx), :] = h
+                    h_f = fft2(t, axes=(0, 1))
+
+                    # Update L
+                    l_f = l_f + (mu * (g_f - h_f))
+
+                    # Update mu - betha = 10.
+                    mu = min(beta * mu, mu_max)
+
+                # Get estimated bbox
+                target_sz = np.floor(self.base_target_pix_sz*scale_factor)
+                rect_pos = np.r_[position[[1, 0]] - np.floor(target_sz[[1, 0]] / 2), target_sz[[1, 0]]]
+                rect_positions.append(rect_pos)
+                yield rect_pos, position, scale_factor
 
             # # Visualization
             # if self.visualization == 1:
-            #     self._visualise(self, img, target_sz, frame, response)
+            #     self._visualise(self, image, target_sz, i_image, response)
 
-        return rect_positions
+        return track
 
-    def _visualise(self, img, target_sz, frame, response, scale_ind, pixels, g_f):
+    def _visualise(self, img, target_sz, frame, response, scale_ind, pixels, g_f, scale_factor):
         xy = self.pos[:2] - target_sz[:2] / 2
         height, width = target_sz
         im_to_show = img
@@ -739,7 +731,7 @@ class BackgroundAwareCorrelationFilte(object):
             im_to_show = np.matlab.repmat(im_to_show[:, :, np.newaxis], [1, 1, 3])
 
         if 0 < frame:
-            resp_sz = np.round(self.search_pix_sz * self.current_scale_factor * self.scale_factors[scale_ind])
+            resp_sz = np.round(self.search_pix_sz * scale_factor * self.scale_factors[scale_ind])
             sc_ind = int(np.floor((self.n_scales - 1) / 2) + 1)
 
             resp = np.fft.fftshift(response[:, :, sc_ind])

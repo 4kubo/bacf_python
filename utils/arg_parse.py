@@ -20,17 +20,13 @@ def parse_args():
     parser.add_argument('--save_without_showing',
                         action='store_true')
 
-    # Default parameters used in the ICCV 2015 paper
+    # Default parameters
     parser.add_argument('--dim_feature', default=31,
                         help="HOG feature parameters")
-    parser.add_argument('--colorspace', default='gray',
-                        help="Grayscale feature parameters")
     parser.add_argument('--n_dim', default=1)
 
     # Global feature parameters
-
-
-    parser.add_argument('--cell_size', default=4,
+    parser.add_argument('--feature_ratio', default=4,
                         help='Feature cell size')
     parser.add_argument('--cell_selection_thresh', default=0.75**2,
                         help='Threshold for reducing the cell size in low-resolution cases')
@@ -75,6 +71,9 @@ def parse_args():
     # Scale parameters
     parser.add_argument('--n_scales', type=int, default=5)
     parser.add_argument('--scale_step', default=1.01)
+
+    # Optimization parameters for ADMM
+    parser.add_argument('--admm_lambda', type=float, default=0.01)
 
     # Debug and visualization
     parser.add_argument('--visualization',
