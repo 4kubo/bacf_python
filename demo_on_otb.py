@@ -34,20 +34,25 @@ if __name__ == "__main__":
 
     for target in params.target_seq:
         print("Current sequence : {}".format(target))
-        gt_label, image_names, n_frame, init_rect = get_sequence_info(params.path_to_sequences, target)
-        images = load_image(image_names)
+        try:
+            gt_label, image_names, n_frame, init_rect = get_sequence_info(params.path_to_sequences, target)
+            images = load_image(image_names)
 
-        # Initialise for current images
-        position, scale_factor = bacf.init(images[0], init_rect)
-        tracker = bacf.gen_tracker(images)
-        model_xf, g_f = None, None
-        rect_positions = []
+            # Initialise for current images
+            position, scale_factor = bacf.init(images[0], init_rect)
+            tracker = bacf.gen_tracker(images)
+            model_xf, g_f = None, None
+            rect_positions = []
 
-        # Run BACF
-        for i, track in enumerate(tracker):
-            rect_pos, position, scale_factor, model_xf, g_f = track(position, scale_factor, model_xf, g_f)
-            print("{} at {}".format(rect_pos, i))
-            rect_positions.append(rect_pos)
+            # Run BACF
+            for i, track in enumerate(tracker):
+                rect_pos, position, scale_factor, model_xf, g_f = track(position, scale_factor, model_xf, g_f)
+                print("{} at {}".format(rect_pos, i))
+                rect_positions.append(rect_pos)
+        except Exception as e:
+            print(e)
+            print("Target {0} is an invalid sequence. So skip".format(target))
+            continue
 
         # Save the result
         target_dir = "{0}/{1}".format(params.run_id, target)

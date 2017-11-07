@@ -16,6 +16,9 @@ def get_sequence_info(path_to_sequences, target_sequence_name):
 
     n_frames = len(frame_names)
 
+    if len(gt_label) != n_frames:
+        raise Exception
+
     init_rect = gt_label[0, :]
 
     return gt_label, frame_names, n_frames, init_rect
