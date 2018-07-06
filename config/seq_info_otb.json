@@ -1,0 +1,26 @@
+{
+  "Exceptional length": {
+    "David": {
+      "start": 299,
+      "end": 770
+    },
+    "Football1": {
+      "start": 0,
+      "end": 74
+    },
+    "Freeman3": {
+      "start": 0,
+      "end": 460
+    },
+    "Freeman4": {
+      "start": 0,
+      "end": 283
+    }
+  },
+  "Multi": {
+      "Skating2-1": 1,
+      "Skating2-2": 2,
+      "Jogging-1": 1,
+      "Jogging-2": 2
+  }
+}

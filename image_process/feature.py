@@ -1,40 +1,65 @@
 from image_process import features_pedro_py as pyhog
 import numpy as np
 from PIL import Image
+import cv2
 
 
-def get_pixels( img, pos, sz, resize_target):
-    # square sub-window:
-    if np.isscalar(sz):
-        sz = np.array((sz, sz))
+def get_pixels(img, pos, n_scales, search_pix_sz, target_sz=None, mode="edge"):
+    """
+    Crop pixels from input image `img` with the center of `pos` and resize to `target_sz`
+    Args:
+        img:
+        pos:
+        search_pix_sz:
+        target_sz:
+        mode: A type of padding.
+    """
+    search_pix_sz[search_pix_sz < 1] = 2
+    # About coordination of top left side
+    yx0 = (pos[None, :] - (search_pix_sz / 2.)).astype(int)
+    m_yx0 = - np.minimum(0, yx0)
+    yx0 = np.maximum(0, yx0)
+    # About coordination of bottom right side
+    yx1 = (pos[None, :] + (search_pix_sz / 2.)).astype(int)
+    yx1_max = np.array([img.shape[:2]] * n_scales) - 1
+    m_yx1 = np.maximum(0, yx1 - yx1_max)
+    yx1 = np.minimum(yx1, yx1_max)
+    # Pad cropped pixels
+    padded_pixs = [np.pad(img[y0: y1, x0: x1, :], ((m_y0, m_y1), (m_x0, m_x1), (0, 0)), mode)
+                   for (y0, x0), (y1, x1), (m_y0, m_x0), (m_y1, m_x1) in zip(yx0, yx1, m_yx0, m_yx1)]
+    cropped_pixs = [cv2.resize(padded_pix, tuple(target_sz.astype(int))) for padded_pix in padded_pixs]
+    cropped_pixs = np.stack(cropped_pixs, axis=-1)
+    return cropped_pixs
 
-    # make sure the size is not to small
-    if sz[0] < 1:
-        sz[0] = 2
+def get_pixel(img, pos, search_pix_sz, target_sz=None, mode="edge"):
+    """
+    Crop pixel from input image `img` with the center of `pos` and resize to `target_sz`
+    Args:
+        img:
+        pos:
+        search_pix_sz:
+        target_sz:
+        mode: A type of padding.
+    """
+    # About coordination of top left side
+    yx0 = (pos - (search_pix_sz / 2.)).astype(int)
+    m_yx0 = - np.minimum(0, yx0)
+    yx0 = np.maximum(0, yx0)
+    # About coordination of bottom right side
+    yx1 = (pos + (search_pix_sz / 2.)).astype(int)
+    yx1_max = np.array(img.shape[:2]) - 1
+    m_yx1 = np.maximum(0, yx1 - yx1_max)
+    yx1 = np.minimum(yx1, yx1_max)
 
-    if sz[1] < 1:
-        sz[1] = 2
-
-    xs = np.floor(pos[1]) + np.arange(sz[1]) - np.floor(sz[1] / 2.)
-    ys = np.floor(pos[0]) + np.arange(sz[0]) - np.floor(sz[0] / 2.)
-
-    # check for out-of-bounds coordinates, and set them to the values at
-    # the borders
-    xs[xs < 0] = 0
-    ys[ys < 0] = 0
-    xs[img.shape[1]-1 < xs] = img.shape[1] - 1
-    ys[img.shape[0]-1 < ys] = img.shape[0] - 1
-
-    # extract imgage
-    img_patch = img[ys.astype(int), :, :]
-    img_patch = img_patch[:, xs.astype(int), :]
-
-    if resize_target.size is 0:
-        resized_patch = img_patch
-    else:
-        img_pil = Image.fromarray(np.uint8(img_patch))
-        resized_patch = np.asarray(img_pil.resize(resize_target.astype(int)))
-    return resized_patch
+    y0, x0 = yx0
+    y1, x1 = yx1
+    m_y0, m_x0 = m_yx0
+    m_y1, m_x1 = m_yx1
+    # Pad cropped pixels
+    cropped_pix = np.pad(img[y0: y1, x0: x1, :], ((m_y0, m_y1), (m_x0, m_x1), (0, 0)), mode)
+    if target_sz is not None:
+        cropped_pix = cv2.resize(cropped_pix, tuple(target_sz.astype(int)))
+    return cropped_pix
 
 
 def get_pyhog(image, cell_size):

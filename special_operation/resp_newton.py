@@ -22,23 +22,23 @@ def resp_newton(response, responsef, iterations, ky, kx, use_sz):
     init_pos_x = np.reshape(2 * np.pi * trans_col / use_sz[1], (1, 1, n_scale))
     max_pos_y = init_pos_y
     max_pos_x = init_pos_x
-    
+
     # pre-compute complex exponential
-    iky = 1j*ky
-    exp_iky = np.tile(iky[np.newaxis, :, np.newaxis], (1, 1, n_scale)) *\
+    iky = 1j * ky
+    exp_iky = np.tile(iky[np.newaxis, :, np.newaxis], (1, 1, n_scale)) * \
               np.tile(max_pos_y, (1, ky.shape[0], 1))
     exp_iky = np.exp(exp_iky)
 
-    ikx = 1j*kx
-    exp_ikx = np.tile(ikx[:, np.newaxis, np.newaxis], (1, 1, n_scale)) *\
+    ikx = 1j * kx
+    exp_ikx = np.tile(ikx[:, np.newaxis, np.newaxis], (1, 1, n_scale)) * \
               np.tile(max_pos_x, (kx.shape[0], 1, 1))
     exp_ikx = np.exp(exp_ikx)
 
     # gradient_step_size = gradient_step_size / prod(use_sz)
-    
+
     ky2 = ky * ky
     kx2 = kx * kx
-    
+
     iter = 1
     while iter <= iterations:
         # Compute gradient
@@ -49,10 +49,10 @@ def resp_newton(response, responsef, iterations, ky, kx, use_sz):
         grad_y = -np.imag(np.einsum('ilk,ljk->ijk', ky_exp_ky, resp_x))
         grad_x = -np.imag(np.einsum('ilk,ljk->ijk', y_resp, kx_exp_kx))
         ival = 1j * np.einsum('ilk,ljk->ijk', exp_iky, resp_x)
-        H_yy = np.tile(ky2[np.newaxis, :, np.newaxis], (1, 1, n_scale))*exp_iky
+        H_yy = np.tile(ky2[np.newaxis, :, np.newaxis], (1, 1, n_scale)) * exp_iky
         H_yy = np.real(-np.einsum('ilk,ljk->ijk', H_yy, resp_x) + ival)
 
-        H_xx = np.tile(kx2[:, np.newaxis, np.newaxis], (1, 1, n_scale))*exp_ikx
+        H_xx = np.tile(kx2[:, np.newaxis, np.newaxis], (1, 1, n_scale)) * exp_ikx
         H_xx = np.real(-np.einsum('ilk,ljk->ijk', y_resp, H_xx) + ival)
         H_xy = np.real(-np.einsum('ilk,ljk->ijk', ky_exp_ky, np.einsum('ilk,ljk->ijk', responsef, kx_exp_kx)))
         det_H = H_yy * H_xx - H_xy * H_xy
@@ -74,11 +74,11 @@ def resp_newton(response, responsef, iterations, ky, kx, use_sz):
 
         iter = iter + 1
 
-    max_response = 1 / np.prod(use_sz) *\
+    max_response = 1 / np.prod(use_sz) * \
                    np.real(np.einsum('ilk,ljk->ijk',
                                      np.einsum('ilk,ljk->ijk', exp_iky, responsef),
                                      exp_ikx))
-    
+
     # check for scales that have not increased in score
     ind = max_response < init_max_response
     max_response[0, 0, ind.flatten()] = init_max_response[ind.flatten()]
