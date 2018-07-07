@@ -7,13 +7,17 @@ import matplotlib.pyplot as plt
 
 
 class LogManger(object):
-    def __init__(self, base_path_to_save, target_items, elapsed_time=False, env=None,
-                 visualization=False):
+    def __init__(self, tracker, base_path_to_save, target_items, elapsed_time=False, env=None,
+                 visualization=False, is_detailed=False, is_simplest=False, save_without_showing=False):
+        self._tracker = tracker
         self._base_path_to_save = base_path_to_save
         self._elapsed_time = elapsed_time
         self._target_items = target_items
         self._env = env
         self._visualization = visualization
+        self._is_detailed = is_detailed
+        self._is_simplest = is_simplest
+        self._save_without_showing = save_without_showing
 
         # Set items to report
         for target_item in target_items:
@@ -50,8 +54,10 @@ class LogManger(object):
             attr = getattr(self, attr_name)
             attr.append(value)
 
-    def set_timer(self):
+    def init(self, report_id, model_id):
         self._time0 = time.time()
+        self.report_id = report_id
+        self.model_id = model_id
 
     def report(self, report_id, target_items=[], elapsed_time=True):
         texts = ["@{0} ".format(report_id)]
@@ -81,7 +87,7 @@ class LogManger(object):
             texts += ["fps : {0:.3}".format(fps)]
         print(", ".join(text for text in texts))
 
-    def save_results(self, result_id, model_name):
+    def save_results(self):
         results = {}
         for target_item in self._target_items:
             attr_name = "_{0}s".format(target_item)
@@ -90,20 +96,20 @@ class LogManger(object):
 
         # Save bbox results to csv
         path_to_csv = "{0}/rect_pos_csv/{1}"\
-            .format(self._base_path_to_save, result_id)
+            .format(self._base_path_to_save, self.report_id)
         if not os.path.exists(path_to_csv):
             os.makedirs(path_to_csv)
             print("Made a directory : {0}".format(path_to_csv))
-        csv_file_name = "{0}/{1}_{2}.csv".format(path_to_csv, model_name, result_id)
+        csv_file_name = "{0}/{1}_{2}.csv".format(path_to_csv, self.model_id, self.report_id)
         np.savetxt(csv_file_name, np.array(self._rect_poss), delimiter=",")
         print("Saved results to {0}".format(csv_file_name))
 
         # Save misc results to pkl
-        path_to_pkl = "{0}/misc/{1}".format(self._base_path_to_save, result_id)
+        path_to_pkl = "{0}/misc/{1}".format(self._base_path_to_save, self.report_id)
         if not os.path.exists(path_to_pkl):
             os.makedirs(path_to_pkl)
             print("Made a directory : {0}".format(path_to_pkl))
-        pkl_file_name = "{0}/{1}_{2}.pkl".format(path_to_pkl, model_name, result_id)
+        pkl_file_name = "{0}/{1}_{2}.pkl".format(path_to_pkl, self.model_id, self.report_id)
         with open(pkl_file_name, "w") as f:
             pickle.dump(results, f)
         print("Saved results to {0}".format(pkl_file_name))
@@ -126,6 +132,15 @@ class LogManger(object):
 
         if self._env is not None:
             self._ious = []
+
+    def visualize(self):
+        if self._save_without_showing:
+            save_without_showing = "{0}/images".format(self._base_path_to_save)
+        else:
+            save_without_showing = self._save_without_showing
+        self._tracker.visualise(self.report_id, is_detailed=self._is_detailed,
+                                is_simplest=self._is_simplest,
+                                save_without_showing=save_without_showing)
 
     def update_env(self):
         # Update aucs dict

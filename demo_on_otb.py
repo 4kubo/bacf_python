@@ -1,4 +1,6 @@
 import traceback
+import matplotlib as mpl
+mpl.use("tkagg")
 import cv2
 
 from background_aware_correlation_filter import BackgroundAwareCorrelationFilter as BACF
@@ -56,8 +58,12 @@ if __name__ == "__main__":
     seq_names, gt_labels, frames_names, n_frames = info
 
     # For report and saving tracking results
-    log_manager = LogManger(params.path_to_save, ["rect_pos", "psr"],
-                            elapsed_time=params.elapsed_time)
+    log_manager = LogManger(bacf, params.path_to_save, ["rect_pos", "psr"],
+                            elapsed_time=params.elapsed_time,
+                            visualization=params.visualization,
+                            is_detailed=params.is_detailed,
+                            is_simplest=params.is_simplest,
+                            save_without_showing=params.save_without_showing)
 
     for i, (seq_name, gt_label, image_names, n_frame) in enumerate(zip(seq_names, gt_labels, frames_names, n_frames)):
         print("Current sequence : {}".format(seq_name))
@@ -68,7 +74,7 @@ if __name__ == "__main__":
             # Initialise for current images
             patch = bacf.init(images[0], rect_pos)
 
-            log_manager.set_timer()
+            log_manager.init(seq_name, "BACF")
             log_manager.store(**{"rect_pos": rect_pos})
 
             # Run BACF
@@ -76,8 +82,10 @@ if __name__ == "__main__":
                 # Visualization
                 # TODO: use visualization function of BACF class
                 if params.visualization:
-                    image_ = images[i].copy()
-                    show_image_with_bbox(image_, rect_pos)
+                    log_manager.visualize()
+                    # bacf.visualise(is_simplest=True, save_without_showing="")
+                    # image_ = images[i].copy()
+                    # show_image_with_bbox(image_, rect_pos)
 
                 patch, response = bacf.track(image)
                 bacf.train(image)
@@ -85,7 +93,7 @@ if __name__ == "__main__":
 
                 log_manager.store(is_timer=True, **{"rect_pos": rect_pos, "psr": bacf.psr})
             log_manager.report(seq_name)
-            log_manager.save_results(seq_name, "BACF")
+            log_manager.save_results()
             log_manager.clear_results()
         except Exception as e:
             print(traceback.format_exc())

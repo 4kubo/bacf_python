@@ -27,8 +27,6 @@ def parse_args():
     parser.add_argument('--run_id',
                         type=str,
                         default='result')
-    parser.add_argument('--save_without_showing',
-                        action='store_true')
     parser.add_argument('--path_to_save',
                         type=str,
                         default="./result")
@@ -115,6 +113,17 @@ def parse_args():
     # Debug and visualization
     parser.add_argument('--visualization', '-v',
                         action='store_true')
+    parser.add_argument('--save_without_showing',
+                        action='store_true',
+                        help='If true, save visualization images'
+                             'to the path appointed by this flag')
+    parser.add_argument('--is_detailed',
+                        action='store_true',
+                        help='Simple visualization using response map'
+                             ' by using trained correlation filter')
+    parser.add_argument('--is_simplest',
+                        action='store_true',
+                        help="Visualization of frame only with bounding box")
     parser.add_argument('--debug',
                         action="store_true")
 

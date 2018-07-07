@@ -58,6 +58,7 @@ class BackgroundAwareCorrelationFilter(object):
 
     def init(self, img, init_rect):
         init_rect = np.array(init_rect)
+        self.frame_i = 0
         self.wsize = np.array((init_rect[3], init_rect[2]))
         position = (init_rect[1]+np.floor(self.wsize[0]/2),
                          init_rect[0]+np.floor(self.wsize[1]/2))
@@ -65,17 +66,17 @@ class BackgroundAwareCorrelationFilter(object):
 
         self._position = np.floor(position)
         target_pix_sz = np.floor(self.wsize)
-        init_target_sz = target_pix_sz
+        self.target_sz = target_pix_sz
 
         # h*w*search_area_scale
-        search_area = np.prod(init_target_sz / self.feature_ratio * self.search_area_scale)
+        search_area = np.prod(self.target_sz / self.feature_ratio * self.search_area_scale)
 
         # When the number of cells are small, choose a smaller cell size
         if search_area < self.cell_selection_thresh * self.filter_max_area:
-            tmp_cell_size = max(1, np.ceil(np.sqrt(np.prod(init_target_sz * self.search_area_scale) /
+            tmp_cell_size = max(1, np.ceil(np.sqrt(np.prod(self.target_sz * self.search_area_scale) /
                                                    (self.cell_selection_thresh * self.filter_max_area))))
             self.feature_ratio = int(min(self.feature_ratio, tmp_cell_size))
-            search_area = np.prod(init_target_sz / self.feature_ratio * self.search_area_scale)
+            search_area = np.prod(self.target_sz / self.feature_ratio * self.search_area_scale)
 
         if self._fixed_size is not None:
             # Scale factor of an extracted pixel area to the fixed size
@@ -173,9 +174,12 @@ class BackgroundAwareCorrelationFilter(object):
 
         self._train(img, initial_g_f)
 
+        self.frame = img
+        self.pixel = pixel
+
         return pixel
 
-    def track(self, image):
+    def track(self, frame):
         if self.interpolate_response == 1:
             interp_sz = self.feature_sz * self.feature_ratio
         # Use dynamic interp size
@@ -187,7 +191,6 @@ class BackgroundAwareCorrelationFilter(object):
         # Estimate translation and scaling
         old_pos = np.full(self._position.shape, np.inf)
         position = self._position
-        multires_pixel_template = self.multires_pixel_template.copy()
         iter = 1
 
         # Translation search
@@ -195,7 +198,7 @@ class BackgroundAwareCorrelationFilter(object):
             # Get multi - resolution image
             target_sz = np.round(self.search_pix_sz)
             search_pix_sz = np.round(target_sz * self._scale_factor * self.scale_factors[:, None])
-            multires_pixel_template = get_pixels(image, position, self.n_scales, search_pix_sz, target_sz)
+            multires_pixel_template = get_pixels(frame, position, self.n_scales, search_pix_sz, target_sz)
 
             features = self._get_features(multires_pixel_template)
             xt = features*self.multi_cos_window
@@ -210,7 +213,7 @@ class BackgroundAwareCorrelationFilter(object):
 
             psr = self._get_psr(response)
             translation_vec, sind = \
-                self._find_displacement(response, responsef_padded, image, position, psr)
+                self._find_displacement(response, responsef_padded, frame, position, psr)
 
             # Update the scale
             scale_factor = self._scale_factor*self.scale_factors[sind]
@@ -224,16 +227,19 @@ class BackgroundAwareCorrelationFilter(object):
 
         # Update of the latent state if translation search is finished within the limitation
         target_sz = np.floor(self.base_target_pix_sz * self._scale_factor)
+
+        self.frame = frame
+        self.frame_i += 1
+        self.target_sz = target_sz
+        self.pixel = multires_pixel_template[:, :, :, sind]
+        self.features = features[:, :, :, sind]
+        self.psr = psr
+        self.response = response
         self._rect_pos = np.r_[position[[1, 0]] - np.floor(target_sz[[1, 0]] / 2), target_sz[[1, 0]]]
         self._position = position
         self._sind = sind
-        self._features = features[:, :, :, sind]
-        self.multires_pixel_template = multires_pixel_template
-        self.psr = psr
 
-        pixel = self.multires_pixel_template[:, :, :, sind]
-
-        return pixel, response
+        return self.pixel, self.response
 
     def train(self, image):
         self._train(image, self._g_f, adaptive_g_f=self._adaptive_g_f)
@@ -421,72 +427,116 @@ class BackgroundAwareCorrelationFilter(object):
         psr = (cropped_resp.max() - cropped_resp.mean()) / (cropped_resp.std() + 1e-10)
         return psr
 
-    def _visualise(self, img, target_sz, frame, response, scale_ind, pixels, g_f, scale_factor):
-        xy = self.pos[:2] - target_sz[:2] / 2
-        height, width = target_sz
-        im_to_show = img
-        if im_to_show.ndim == 2:
-            im_to_show = np.matlab.repmat(im_to_show[:, :, np.newaxis], [1, 1, 3])
-
-        if 0 < frame:
-            resp_sz = np.round(self.search_pix_sz * scale_factor * self.scale_factors[scale_ind])
-            sc_ind = int(np.floor((self.n_scales - 1) / 2) + 1)
-
-            resp = np.fft.fftshift(response[:, :, sc_ind])
-            m = resp.max()
-            min_ = resp.min()
-            normalized_resp = (resp - min_) / (m - min_)
-            resized_resp = cv2.resize(normalized_resp, tuple(resp_sz.astype(int)))
-            resized_resp = Image.fromarray((resized_resp * 255).astype(np.uint8))
-
-            canv = Image.new("RGB", img.shape[:2][::-1])
-            x_base = np.floor(self.pos[1]) - np.floor(resp_sz[1] / 2)
-            y_base = np.floor(self.pos[0]) - np.floor(resp_sz[0] / 2)
-            canv.paste(resized_resp, (int(x_base), int(y_base)))
-            canv = np.asarray(canv)
-            canv = (cm.jet(canv[:, :, 0])[:, :, :3] * 255).astype(np.uint8)
-            main_img = cv2.addWeighted(im_to_show, 1.0, canv, 0.5, 0)
-
-            resp_to_show = (cv2.resize(normalized_resp, self.search_pix_sz.astype(int)) * 255).astype(np.uint8)
-            if self.save_without_showing:
-                cv2.imwrite(target_dir + '/response/{}.png'.format(frame), resp_to_show)
+    def visualise(self, report_id, is_simplest=False, is_detailed=False,
+                  save_without_showing=""):
+        """
+        Visualize current tracking state
+        Args:
+            report_id(str): Strings which specifies input frames
+            is_simplest(bool): If True, visualize frame only with bounding box.
+                 This argument has priority over `is_detailed`
+            is_detailed(bool): If True, show some visualization
+            save_without_showing(bool):
+        """
+        if is_simplest:
+            tl = (int(self._rect_pos[0]), int(self._rect_pos[1]))
+            br = (int(self._rect_pos[0] + self._rect_pos[2]),
+                  int(self._rect_pos[1] + self._rect_pos[3]))
+            image_with_bbox = cv2.rectangle(self.frame, tl, br, (255, 0, 0), 3)
+            if save_without_showing:
+                if self.frame_i == 0:
+                    path_to_save = "{0}/frames_with_bbox".format(save_without_showing)
+                    if not os.path.exists(path_to_save):
+                        os.makedirs(path_to_save)
+                        os.path.join(path_to_save)
+                path_i_to_save = "{0}/frames_with_bbox/{1}/{2}.png"\
+                    .format(save_without_showing, report_id, self.frame_i)
+                cv2.imwrite(path_i_to_save, image_with_bbox)
             else:
-                cv2.imshow("response", resp_to_show)
+                cv2.imshow("frame_with_bbox", image_with_bbox)
+            cv2.waitKey(1)
         else:
-            target_dir = "{0}/{1}".format(self.run_id, self.target_name)
-            self.target_dir = target_dir
+            xy = self._position[:2] - self.target_sz[:2] / 2
+            height, width = self.target_sz
+            im_to_show = self.frame
+            if im_to_show.ndim == 2:
+                im_to_show = np.matlab.repmat(im_to_show[:, :, np.newaxis], [1, 1, 3])
 
-            if self.save_without_showing:
-                for i in ["/main_img", "/filters", "/image_with_bbox", "/response"]:
-                    if not os.path.exists(target_dir + i):
-                        os.makedirs(target_dir + i)
-                    os.path.join(target_dir + i)
-            main_img = im_to_show
+            if 0 < self.frame_i:
+                resp_sz = np.round(self.search_pix_sz
+                                   * self._scale_factor
+                                   * self.scale_factors[self._sind])
+                sc_ind = int(np.floor((self.n_scales - 1) / 2) + 1)
 
-        # in opencv, coordinate is in form of (x, y)
-        cv2.rectangle(main_img, (int(xy[1]), int(xy[0])), (int(xy[1] + width), int(xy[0] + height)),
-                      (255, 0, 0), 6)
+                resp = np.fft.fftshift(self.response[:, :, sc_ind])
+                m = resp.max()
+                min_ = resp.min()
+                normalized_resp = (resp - min_) / (m - min_)
+                resized_resp = cv2.resize(normalized_resp, tuple(resp_sz.astype(int)))
+                resized_resp = Image.fromarray((resized_resp * 255).astype(np.uint8))
 
-        # Plotting 6 filters
-        y0, x0 = (self.search_pix_sz / 2 - self.base_target_pix_sz / 2).astype(int)
-        y1, x1 = (self.search_pix_sz / 2 + self.base_target_pix_sz / 2).astype(int)
-        target_with_bbox = cv2.rectangle(pixels, (x0, y0), (x1, y1), (255, 0, 0), 3)
+                canv = Image.new("RGB", self.frame.shape[:2][::-1])
+                x_base = np.floor(self._position[1]) - np.floor(resp_sz[1] / 2)
+                y_base = np.floor(self._position[0]) - np.floor(resp_sz[0] / 2)
+                canv.paste(resized_resp, (int(x_base), int(y_base)))
+                canv = np.asarray(canv)
+                canv = (cm.jet(canv[:, :, 0])[:, :, :3] * 255).astype(np.uint8)
+                main_img = cv2.addWeighted(im_to_show, 1.0, canv, 0.5, 0)
+                if is_detailed:
+                    target_sz = tuple(self.search_pix_sz.astype(int))
+                    resp_to_show = (cv2.resize(normalized_resp, target_sz) * 255).astype(np.uint8)
+                    if save_without_showing:
+                        path_i_to_save = "{0}/responses/{1}/{2}.png"\
+                            .format(save_without_showing, report_id, self.frame_i)
+                        cv2.imwrite(path_i_to_save, resp_to_show)
+                    else:
+                        cv2.imshow("response", resp_to_show)
+            else:
+                if save_without_showing:
+                    for dir_name in ["/regions_with_bbox", "/filters", "/frames_with_response", "/responses"]:
+                        path_to_save = "{0}/{1}/{2}".format(save_without_showing, dir_name, report_id)
+                        if not os.path.exists(path_to_save):
+                            os.makedirs(path_to_save)
+                        os.path.join(path_to_save)
+                main_img = im_to_show
 
-        filter = np.real(ifft2(g_f, axes=(0, 1)))
-        filter = filter.sum(axis=2)
-        max_ = filter.max()
-        min_ = filter.min()
-        f = (filter - min_) / (max_ - min_)
-        f = (cv2.resize(f, (200, 200)) * 255).astype(np.uint8)
+            # in opencv, coordinate is in form of (x, y)
+            cv2.rectangle(main_img, (int(xy[1]), int(xy[0])), (int(xy[1] + width), int(xy[0] + height)),
+                          (255, 0, 0), 6)
 
-        if self.save_without_showing:
-            cv2.imwrite(target_dir + '/filters/{}.png'.format(frame), f)
-            cv2.imwrite(target_dir + '/image_with_bbox/{}.png'.format(frame), target_with_bbox)
-            cv2.imwrite(target_dir + '/main_img/{}.png'.format(frame), main_img)
-        else:
-            # f = filter.sum(axis=2)
-            cv2.imshow("filters", f)
-            cv2.imshow("image_with_bbox", target_with_bbox)
-            cv2.imshow('main', main_img)
+            if is_detailed:
+                # Extracted region from a given frame
+                y0, x0 = (self.search_pix_sz / 2 - self.base_target_pix_sz / 2).astype(int)
+                y1, x1 = (self.search_pix_sz / 2 + self.base_target_pix_sz / 2).astype(int)
+                frame = self.pixel.astype(np.uint8)
+                target_with_bbox = cv2.rectangle(frame, (x0, y0), (x1, y1), (255, 0, 0), 3)
+                # Correlation filter
+                filter = np.real(ifft2(self._g_f, axes=(0, 1)))
+                filter = filter.sum(axis=2)
+                max_ = filter.max()
+                min_ = filter.min()
+                f = (filter - min_) / (max_ - min_)
+                f = (cv2.resize(f, (200, 200)) * 255).astype(np.uint8)
 
-        cv2.waitKey(1)
+                if save_without_showing:
+                    path_i_to_save = \
+                        "{0}/filters/{1}/{2}.png"\
+                            .format(save_without_showing, report_id, self.frame_i)
+                    cv2.imwrite(path_i_to_save, f)
+                    path_i_to_save = \
+                        "{0}/regions_with_bbox/{1}/{2}.png"\
+                            .format(save_without_showing, report_id, self.frame_i)
+                    cv2.imwrite(path_i_to_save, target_with_bbox)
+                else:
+                    # f = filter.sum(axis=2)
+                    cv2.imshow("filter", f)
+                    cv2.imshow("region_with_bbox", target_with_bbox)
+
+            if save_without_showing:
+                path_i_to_save = "{0}/frames_with_response/{1}/{2}.png"\
+                    .format(save_without_showing, report_id, self.frame_i)
+                cv2.imwrite(path_i_to_save, main_img)
+            else:
+                cv2.imshow('frame_with_response', main_img)
+
+            cv2.waitKey(1)
