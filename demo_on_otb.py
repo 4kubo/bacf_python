@@ -80,12 +80,8 @@ if __name__ == "__main__":
             # Run BACF
             for i, image in enumerate(images[1:]):
                 # Visualization
-                # TODO: use visualization function of BACF class
                 if params.visualization:
                     log_manager.visualize()
-                    # bacf.visualise(is_simplest=True, save_without_showing="")
-                    # image_ = images[i].copy()
-                    # show_image_with_bbox(image_, rect_pos)
 
                 patch, response = bacf.track(image)
                 bacf.train(image)

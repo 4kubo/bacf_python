@@ -134,13 +134,16 @@ class LogManger(object):
             self._ious = []
 
     def visualize(self):
-        if self._save_without_showing:
-            save_without_showing = "{0}/images".format(self._base_path_to_save)
+        if self._env is None:
+            if self._save_without_showing:
+                save_without_showing = "{0}/images".format(self._base_path_to_save)
+            else:
+                save_without_showing = self._save_without_showing
+            self._tracker.visualise(self.report_id, is_detailed=self._is_detailed,
+                                    is_simplest=self._is_simplest,
+                                    save_without_showing=save_without_showing)
         else:
-            save_without_showing = self._save_without_showing
-        self._tracker.visualise(self.report_id, is_detailed=self._is_detailed,
-                                is_simplest=self._is_simplest,
-                                save_without_showing=save_without_showing)
+            raise NotImplementedError
 
     def update_env(self):
         # Update aucs dict
